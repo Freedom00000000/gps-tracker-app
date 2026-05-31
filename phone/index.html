@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS GPS Tracker</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #00ff88;
+      font-family: 'Courier New', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #111;
+      border: 1px solid #00ff88;
+      border-radius: 16px;
+      padding: 30px 20px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 0 30px rgba(0,255,136,0.15);
+    }
+    h1 {
+      font-size: 1.4rem;
+      text-align: center;
+      margin-bottom: 6px;
+      letter-spacing: 2px;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #555;
+      margin-bottom: 24px;
+      letter-spacing: 1px;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #555;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .status-dot.active { background: #00ff88; box-shadow: 0 0 8px #00ff88; animation: pulse 1s infinite; }
+    .status-dot.error  { background: #ff4444; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .status-line {
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .data-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .data-box {
+      background: #0d0d0d;
+      border: 1px solid #222;
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+    }
+    .data-box .label {
+      font-size: 0.65rem;
+      color: #555;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .data-box .value {
+      font-size: 1rem;
+      color: #00ff88;
+      font-weight: bold;
+    }
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border-radius: 10px;
+      border: none;
+      font-family: 'Courier New', monospace;
+      font-size: 1rem;
+      font-weight: bold;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-start {
+      background: #00ff88;
+      color: #000;
+      margin-bottom: 10px;
+    }
+    .btn-stop {
+      background: transparent;
+      color: #ff4444;
+      border: 1px solid #ff4444;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .log {
+      margin-top: 20px;
+      background: #0d0d0d;
+      border: 1px solid #1a1a1a;
+      border-radius: 10px;
+      padding: 12px;
+      height: 140px;
+      overflow-y: auto;
+      font-size: 0.7rem;
+      color: #555;
+    }
+    .log .ok  { color: #00ff88; }
+    .log .err { color: #ff4444; }
+    .ping-count {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #333;
+      margin-top: 10px;
+    }
+    input[type=text] {
+      width: 100%;
+      background: #0d0d0d;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #00ff88;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      outline: none;
+    }
+    input[type=text]:focus { border-color: #00ff88; }
+    label { font-size: 0.7rem; color: #555; letter-spacing: 1px; display: block; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>⚡ J.A.R.V.I.S.</h1>
+    <div class="subtitle">LIVE GPS TRACKER</div>
+
+    <label>DEVICE NAME</label>
+    <input type="text" id="deviceName" value="my-phone" placeholder="e.g. casper-phone" />
+
+    <label>JARVIS ENDPOINT</label>
+    <input type="text" id="endpoint" value="https://api.base44.com/api/apps/684aa4c9d1f0e04e8e1e5d8e/functions/gpsReceiver" />
+
+    <label>API KEY</label>
+    <input type="text" id="apiKey" value="jarvis-gps-2026" />
+
+    <div class="status-line">
+      <span class="status-dot" id="dot"></span>
+      <span id="statusText">IDLE — press START</span>
+    </div>
+
+    <div class="data-grid">
+      <div class="data-box">
+        <div class="label">LATITUDE</div>
+        <div class="value" id="lat">—</div>
+      </div>
+      <div class="data-box">
+        <div class="label">LONGITUDE</div>
+        <div class="value" id="lng">—</div>
+      </div>
+      <div class="data-box">
+        <div class="label">ACCURACY</div>
+        <div class="value" id="acc">—</div>
+      </div>
+      <div class="data-box">
+        <div class="label">ALTITUDE</div>
+        <div class="value" id="alt">—</div>
+      </div>
+    </div>
+
+    <button class="btn btn-start" id="startBtn" onclick="startTracking()">▶ START TRACKING</button>
+    <button class="btn btn-stop"  id="stopBtn"  onclick="stopTracking()" disabled>■ STOP</button>
+
+    <div class="log" id="log"></div>
+    <div class="ping-count" id="pingCount">Pings sent: 0</div>
+  </div>
+
+  <script>
+    let watchId   = null;
+    let intervalId = null;
+    let pingCount  = 0;
+    let lastPos    = null;
+
+    function log(msg, type='ok') {
+      const el = document.getElementById('log');
+      const line = document.createElement('div');
+      line.className = type;
+      const t = new Date().toTimeString().slice(0,8);
+      line.textContent = `[${t}] ${msg}`;
+      el.prepend(line);
+    }
+
+    function setStatus(text, state='idle') {
+      document.getElementById('statusText').textContent = text;
+      const dot = document.getElementById('dot');
+      dot.className = 'status-dot ' + (state === 'active' ? 'active' : state === 'error' ? 'error' : '');
+    }
+
+    function startTracking() {
+      if (!navigator.geolocation) {
+        setStatus('GPS NOT SUPPORTED', 'error');
+        log('Geolocation not supported on this device', 'err');
+        return;
+      }
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('stopBtn').disabled  = false;
+      setStatus('ACQUIRING GPS...', 'active');
+      log('Requesting GPS permission...');
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          lastPos = pos;
+          updateDisplay(pos);
+          setStatus('TRACKING LIVE', 'active');
+          log(`GPS acquired. Accuracy: ${pos.coords.accuracy.toFixed(0)}m`);
+          sendPing(pos);
+          // Watch position for live updates
+          watchId = navigator.geolocation.watchPosition(
+            (p) => { lastPos = p; updateDisplay(p); },
+            (e) => log('Watch error: ' + e.message, 'err'),
+            { enableHighAccuracy: true, maximumAge: 0 }
+          );
+          // Send ping every 5 seconds
+          intervalId = setInterval(() => {
+            if (lastPos) sendPing(lastPos);
+          }, 5000);
+        },
+        (err) => {
+          setStatus('GPS ERROR', 'error');
+          log('Error: ' + err.message, 'err');
+          document.getElementById('startBtn').disabled = false;
+          document.getElementById('stopBtn').disabled  = true;
+        },
+        { enableHighAccuracy: true, timeout: 15000 }
+      );
+    }
+
+    function stopTracking() {
+      if (watchId !== null)    { navigator.geolocation.clearWatch(watchId); watchId = null; }
+      if (intervalId !== null) { clearInterval(intervalId); intervalId = null; }
+      setStatus('STOPPED', '');
+      log('Tracking stopped.');
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled  = true;
+    }
+
+    function updateDisplay(pos) {
+      document.getElementById('lat').textContent = pos.coords.latitude.toFixed(6);
+      document.getElementById('lng').textContent = pos.coords.longitude.toFixed(6);
+      document.getElementById('acc').textContent = pos.coords.accuracy.toFixed(0) + 'm';
+      document.getElementById('alt').textContent = pos.coords.altitude ? pos.coords.altitude.toFixed(0) + 'm' : 'N/A';
+    }
+
+    async function sendPing(pos) {
+      const endpoint  = document.getElementById('endpoint').value.trim();
+      const apiKey    = document.getElementById('apiKey').value.trim();
+      const deviceName = document.getElementById('deviceName').value.trim() || 'my-phone';
+      const payload = {
+        device_name: deviceName,
+        latitude:    pos.coords.latitude,
+        longitude:   pos.coords.longitude,
+        accuracy:    pos.coords.accuracy,
+        altitude:    pos.coords.altitude || null,
+        speed:       pos.coords.speed    || null,
+      };
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          pingCount++;
+          document.getElementById('pingCount').textContent = `Pings sent: ${pingCount}`;
+          log(`✅ Ping #${pingCount} → lat=${payload.latitude.toFixed(5)} lng=${payload.longitude.toFixed(5)}`);
+        } else {
+          log(`❌ Server: ${JSON.stringify(data)}`, 'err');
+        }
+      } catch(e) {
+        log(`❌ Network error: ${e.message}`, 'err');
+      }
+    }
+  </script>
+</body>
+</html>
