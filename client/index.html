@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GPS Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+    header { background: #1a1a2e; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a2a4a; }
+    header h1 { font-size: 1.2rem; color: #00d4ff; letter-spacing: 2px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #444; display: inline-block; margin-right: 6px; }
+    .status-dot.live { background: #00ff88; box-shadow: 0 0 8px #00ff88; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .controls { background: #141428; padding: 10px 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #2a2a4a; }
+    input, select, button { background: #1e1e3a; border: 1px solid #3a3a6a; color: #e0e0e0; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; }
+    button { cursor: pointer; background: #00d4ff22; border-color: #00d4ff; color: #00d4ff; transition: all 0.2s; }
+    button:hover { background: #00d4ff44; }
+    button.danger { border-color: #ff4466; color: #ff4466; background: #ff446622; }
+    button.success { border-color: #00ff88; color: #00ff88; background: #00ff8822; }
+    #map { flex: 1; }
+    .sidebar { position: absolute; top: 120px; right: 16px; z-index: 1000; background: #1a1a2eee; border: 1px solid #2a2a4a; border-radius: 10px; padding: 14px; width: 240px; backdrop-filter: blur(8px); }
+    .sidebar h3 { font-size: 0.8rem; color: #00d4ff; margin-bottom: 10px; letter-spacing: 1px; }
+    .info-row { display: flex; justify-content: space-between; font-size: 0.78rem; margin: 4px 0; color: #aaa; }
+    .info-row span:last-child { color: #fff; }
+    .device-list { max-height: 160px; overflow-y: auto; }
+    .device-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; transition: background 0.15s; }
+    .device-item:hover { background: #2a2a4a; }
+    .device-item.active { background: #00d4ff22; border-left: 3px solid #00d4ff; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⬡ GPS TRACKER</h1>
+    <div><span class="status-dot" id="dot"></span><span id="status-text">OFFLINE</span></div>
+  </header>
+  <div class="controls">
+    <label>API: <input id="apiUrl" value="http://localhost:5000" style="width:200px" /></label>
+    <label>Device ID: <input id="deviceId" value="device-001" style="width:120px" /></label>
+    <button class="success" onclick="startTracking()">▶ Track Me</button>
+    <button class="danger" onclick="stopTracking()">◼ Stop</button>
+    <button onclick="loadDevices()">↻ Refresh</button>
+    <button class="danger" onclick="clearHistory()">🗑 Clear</button>
+  </div>
+  <div style="position:relative; flex:1; display:flex">
+    <div id="map"></div>
+    <div class="sidebar">
+      <h3>LIVE DATA</h3>
+      <div class="info-row"><span>Lat</span><span id="i-lat">—</span></div>
+      <div class="info-row"><span>Lng</span><span id="i-lng">—</span></div>
+      <div class="info-row"><span>Speed</span><span id="i-spd">—</span></div>
+      <div class="info-row"><span>Accuracy</span><span id="i-acc">—</span></div>
+      <div class="info-row"><span>Points</span><span id="i-pts">—</span></div>
+      <div class="info-row"><span>Last seen</span><span id="i-ts">—</span></div>
+      <br/>
+      <h3>DEVICES</h3>
+      <div class="device-list" id="device-list"></div>
+    </div>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([51.505, -0.09], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+    let marker = null, watchId = null, trackPoints = [];
+    let polyline = L.polyline([], { color: '#00d4ff', weight: 3, opacity: 0.8 }).addTo(map);
+    const api = () => document.getElementById('apiUrl').value.trim();
+    const deviceId = () => document.getElementById('deviceId').value.trim();
+    function setStatus(live, text) {
+      document.getElementById('dot').className = 'status-dot' + (live ? ' live' : '');
+      document.getElementById('status-text').textContent = text;
+    }
+    function updateInfo(data) {
+      const l = data.latest || data;
+      document.getElementById('i-lat').textContent = l.lat?.toFixed(6) ?? '—';
+      document.getElementById('i-lng').textContent = l.lng?.toFixed(6) ?? '—';
+      document.getElementById('i-spd').textContent = l.speed ? l.speed.toFixed(1) + ' m/s' : '0';
+      document.getElementById('i-acc').textContent = l.accuracy ? l.accuracy.toFixed(0) + ' m' : '—';
+      document.getElementById('i-pts').textContent = data.total_points ?? '—';
+      document.getElementById('i-ts').textContent = l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : '—';
+    }
+    function placeMarker(lat, lng) {
+      if (!marker) { marker = L.circleMarker([lat, lng], { radius: 10, color: '#00d4ff', fillColor: '#00ff88', fillOpacity: 0.9 }).addTo(map); }
+      else { marker.setLatLng([lat, lng]); }
+      map.setView([lat, lng], 16);
+    }
+    async function sendLocation(lat, lng, speed, accuracy) {
+      try {
+        await fetch(`${api()}/api/location`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id: deviceId(), lat, lng, speed: speed||0, accuracy: accuracy||0, timestamp: new Date().toISOString() }) });
+        trackPoints.push([lat, lng]);
+        polyline.setLatLngs(trackPoints);
+        placeMarker(lat, lng);
+        updateInfo({ latest: { lat, lng, speed, accuracy, timestamp: new Date().toISOString() }, total_points: trackPoints.length });
+        setStatus(true, 'TRACKING');
+      } catch(e) { setStatus(false, 'ERROR'); }
+    }
+    function startTracking() {
+      if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
+      watchId = navigator.geolocation.watchPosition(
+        pos => sendLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed, pos.coords.accuracy),
+        err => setStatus(false, 'GPS ERROR'),
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+      );
+      setStatus(true, 'TRACKING');
+    }
+    function stopTracking() {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+      setStatus(false, 'STOPPED');
+    }
+    async function loadDevices() {
+      try {
+        const res = await fetch(`${api()}/api/devices`);
+        const devices = await res.json();
+        const list = document.getElementById('device-list');
+        list.innerHTML = '';
+        devices.forEach(d => {
+          const el = document.createElement('div');
+          el.className = 'device-item' + (d.device_id === deviceId() ? ' active' : '');
+          el.textContent = '📍 ' + d.device_id;
+          el.onclick = () => viewDevice(d.device_id);
+          list.appendChild(el);
+        });
+      } catch(e) {}
+    }
+    async function viewDevice(id) {
+      try {
+        const res = await fetch(`${api()}/api/location/${id}`);
+        const data = await res.json();
+        updateInfo(data);
+        polyline.setLatLngs(data.history.map(p => [p.lat, p.lng]));
+        if (data.latest) placeMarker(data.latest.lat, data.latest.lng);
+      } catch(e) {}
+    }
+    async function clearHistory() {
+      if (!confirm('Clear history for ' + deviceId() + '?')) return;
+      await fetch(`${api()}/api/location/${deviceId()}/clear`, { method: 'DELETE' });
+      trackPoints = []; polyline.setLatLngs([]);
+      if (marker) { map.removeLayer(marker); marker = null; }
+      setStatus(false, 'CLEARED');
+    }
+    setInterval(loadDevices, 10000);
+    loadDevices();
+  </script>
+</body>
+</html>
